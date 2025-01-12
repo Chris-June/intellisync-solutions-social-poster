@@ -75,7 +75,8 @@ const PreferenceSelection: React.FC<PreferenceSelectionProps> = ({
       motivational: true,
       educational: true,
       promotional: true,
-      personal: true
+      personal: true,
+      newsletter: true
     }
   });
 
@@ -262,6 +263,18 @@ const PreferenceSelection: React.FC<PreferenceSelectionProps> = ({
                     }
                   />
                   <Label>Personal</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    checked={preferences.contentTypes.newsletter}
+                    onCheckedChange={(checked) =>
+                      setPreferences({
+                        ...preferences,
+                        contentTypes: { ...preferences.contentTypes, newsletter: checked }
+                      })
+                    }
+                  />
+                  <Label>Newsletter</Label>
                 </div>
               </div>
             </div>

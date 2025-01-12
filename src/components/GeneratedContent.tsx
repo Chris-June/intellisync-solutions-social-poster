@@ -47,12 +47,17 @@ interface PlatformFormats {
 }
 
 interface GeneratedContentProps {
-  activeTab: string;
+  activeTab?: string;
   content?: string;
   onClear?: () => void;
   onRegenerate?: () => void;
   isLoading?: boolean;
   preferences?: UserPreferences;
+  topic?: string;
+  audience?: string;
+  style?: string;
+  guidelines?: string;
+  generatedContent?: string;
 }
 
 type PlatformKey = 'instagram' | 'linkedin' | 'twitter' | 'tiktok' | 'facebook' | 'discord';
@@ -63,7 +68,12 @@ export const GeneratedContent: React.FC<GeneratedContentProps> = ({
   onClear, 
   onRegenerate,
   isLoading = false,
-  preferences
+  preferences,
+  topic,
+  audience,
+  style,
+  guidelines,
+  generatedContent
 }) => {
   const [copied, setCopied] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
@@ -84,79 +94,51 @@ export const GeneratedContent: React.FC<GeneratedContentProps> = ({
   const contentEditableRef = useRef<HTMLDivElement>(null);
   const infoIconRef = useRef<HTMLDivElement>(null);
 
-  const dummyContent = content || "Your generated content will appear here. Fill out the form and click generate to create new content.";
-  const platformLimit = getPlatformTokenLimit(activeTab);
+  const dummyContent: string = content ?? "Your generated content will appear here. Fill out the form and click generate to create new content.";
+
+  // Type guard to validate platform keys
+  const isPlatformKey = (key: string | undefined): key is PlatformKey => 
+    ['instagram', 'linkedin', 'twitter', 'tiktok', 'facebook', 'discord'].includes(key ?? '');
+
+  const platformLimit = isPlatformKey(activeTab) 
+    ? getPlatformTokenLimit(activeTab) 
+    : 280; // Default to Twitter's limit as a fallback
 
   // Format content based on platform preferences
-  const formatContentForPlatform = (content: string, platform: string) => {
+  const formatContentForPlatform = (content: string, platform?: string): string => {
+    // Early return if no content or platform is provided
+    if (!content || !platform) return content;
+
+    // Validate platform key
+    if (!isPlatformKey(platform)) return content;
+
+    // Early return if no platform formats are defined
     if (!preferences?.platformFormats) return content;
 
     let formattedContent = content;
-  
-    // Type-safe indexing
-    const platformFormat = platform in preferences.platformFormats 
-      ? preferences.platformFormats[platform as PlatformKey] 
-      : undefined;
 
+    // Safely access platform format with optional chaining
+    const platformFormat = preferences.platformFormats[platform];
     if (!platformFormat) return content;
 
     // Type guard to check if the platform format has templates
     const hasTemplate = (format: any): format is { template?: string } => 
       format && 'template' in format;
 
+    // Apply template if available
     if (hasTemplate(platformFormat) && platformFormat.template) {
-      // Apply template if it exists
       formattedContent = platformFormat.template.replace('{{content}}', formattedContent);
-    }
-
-    // Type guard to check if the platform format has hashtagSuggestions
-    const hasHashtagSuggestions = (format: any): format is { hashtagSuggestions: boolean } => 
-      format && 'hashtagSuggestions' in format;
-
-    if (platform === 'instagram' && hasHashtagSuggestions(platformFormat) && platformFormat.hashtagSuggestions) {
-      formattedContent = `${formattedContent}\n\n${hashtags.join(' ')}`;
-    }
-
-    // Similar type guards for other platform-specific formatting
-    const hasCharacterLimitOptimization = (format: any): format is { characterLimitOptimization: boolean } => 
-      format && 'characterLimitOptimization' in format;
-
-    const hasProfessionalTone = (format: any): format is { professionalTone: boolean } => 
-      format && 'professionalTone' in format;
-
-    if (platform === 'twitter' && hasCharacterLimitOptimization(platformFormat) && platformFormat.characterLimitOptimization) {
-      formattedContent = formattedContent.slice(0, 280);
-    }
-
-    if (platform === 'linkedin' && hasProfessionalTone(platformFormat) && platformFormat.professionalTone) {
-      // Add professional formatting (e.g., line breaks between paragraphs)
-      formattedContent = formattedContent.split('\n').filter(Boolean).join('\n\n');
-    }
-
-    // Only format as threads if the active tab is specifically for threads
-    if (activeTab === 'Threads') {
-      formattedContent = formatThreadedPost(formattedContent);
     }
 
     return formattedContent;
   };
 
-  // Apply tone-based styling
-  const getToneStyles = () => {
-    if (!preferences?.tone) return '';
-    
-    switch (preferences.tone) {
-      case 'professional':
-        return 'font-serif text-gray-800';
-      case 'casual':
-        return 'font-sans text-gray-700';
-      case 'inspirational':
-        return 'font-sans italic text-indigo-600';
-      case 'humorous':
-        return 'font-sans text-purple-600';
-      default:
-        return '';
-    }
+  // Helper function to safely convert platform to PlatformKey
+  const getPlatformKey = (platform: string | null): PlatformKey | null => {
+    const validPlatforms: PlatformKey[] = ['instagram', 'linkedin', 'twitter', 'tiktok', 'facebook', 'discord'];
+    return platform && validPlatforms.includes(platform as PlatformKey) 
+      ? platform as PlatformKey 
+      : null;
   };
 
   useEffect(() => {
@@ -177,13 +159,14 @@ export const GeneratedContent: React.FC<GeneratedContentProps> = ({
       }
 
       // Format content based on selected platform
-      const formattedContent = selectedPlatform 
-        ? formatContentForPlatform(dummyContent, selectedPlatform)
+      const platform: PlatformKey = selectedPlatform as PlatformKey;
+      const formattedContent = platform 
+        ? formatContentForPlatform(dummyContent, platform)
         : dummyContent;
 
       setTruncatedContent(formattedContent);
     }
-  }, [dummyContent, activeTab, selectedPlatform, preferences]);
+  }, [dummyContent, selectedPlatform, preferences, platformLimit]);
 
   useEffect(() => {
     // Convert content to threads when content changes

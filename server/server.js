@@ -2,11 +2,24 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const { OpenAI } = require('openai');
+const rateLimit = require('express-rate-limit');
+const { z } = require('zod');
+const Redis = require('ioredis');
 
 dotenv.config();
 
+// Initialize Redis client if REDIS_URL is provided
+const redis = process.env.REDIS_URL ? new Redis(process.env.REDIS_URL) : null;
+
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Rate limiting middleware
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again after 15 minutes'
+});
 
 // Middleware
 app.use(cors({
@@ -15,58 +28,128 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
+app.use(limiter);
 
-// Helper function to build Threaded Post prompt
-function buildPrompt({ postType, topic, audience, style, guidelines }) {
-  if (postType === 'thread') {
-    return `
-      Generate a multi-post thread for a Twitter-like platform.
-      Topic: ${topic}
-      Target Audience: ${audience}
-      Style: ${style}
-      Guidelines: ${guidelines}
-    `;
-  }
-  
-  return `
+// Input validation schemas
+const contentSchema = z.object({
+  postType: z.enum(['post', 'thread', 'poll']),
+  topic: z.string().min(1, 'Topic is required'),
+  audience: z.string().optional().default('general audience'),
+  style: z.string().optional().default('neutral and engaging'),
+  guidelines: z.string().optional().default('none'),
+  preferences: z.object({
+    platforms: z.record(z.boolean()).optional(),
+    tonePreference: z.string().optional(),
+    contentLength: z.string().optional(),
+    hashtagPreference: z.string().optional()
+  }).optional()
+});
+
+// Prompt templates
+const promptTemplates = {
+  post: ({ topic, audience, style, guidelines, preferences }) => `
     Generate a social media post.
-    Post Type: ${postType}
     Topic: ${topic}
     Target Audience: ${audience}
     Style: ${style}
     Guidelines: ${guidelines}
-  `;
+    ${preferences ? `Platform Preferences: ${JSON.stringify(preferences.platforms)}
+    Tone Preference: ${preferences.tonePreference}
+    Content Length: ${preferences.contentLength}
+    Hashtag Preference: ${preferences.hashtagPreference}` : ''}
+  `,
+  thread: ({ topic, audience, style, guidelines, preferences }) => `
+    Generate a multi-post thread for a Twitter-like platform.
+    Topic: ${topic}
+    Target Audience: ${audience}
+    Style: ${style}
+    Guidelines: ${guidelines}
+    ${preferences ? `Tone Preference: ${preferences.tonePreference}
+    Content Length: ${preferences.contentLength}
+    Hashtag Preference: ${preferences.hashtagPreference}` : ''}
+  `,
+  poll: ({ topic, audience, style, guidelines }) => `
+    Generate an engaging social media poll.
+    Topic: ${topic}
+    Target Audience: ${audience}
+    Style: ${style}
+    Guidelines: ${guidelines}
+
+    Please format the response EXACTLY like this:
+    1. Poll Question
+    2. Option A
+    3. Option B
+    4. Option C
+    5. Option D
+    6. Explanation of why this poll is engaging
+  `
+};
+
+// Generic prompt generator
+function generatePrompt(type, content) {
+  const template = promptTemplates[type];
+  if (!template) {
+    throw new Error(`Invalid content type: ${type}`);
+  }
+  return template(content);
+}
+
+// Cache middleware
+async function checkCache(req, res, next) {
+  if (!redis) return next();
+  
+  const cacheKey = `content:${JSON.stringify(req.body)}`;
+  try {
+    const cachedResult = await redis.get(cacheKey);
+    if (cachedResult) {
+      console.log('Cache hit for:', cacheKey);
+      return res.json(JSON.parse(cachedResult));
+    }
+    console.log('Cache miss for:', cacheKey);
+  } catch (error) {
+    console.error('Cache error:', error);
+  }
+  next();
+}
+
+// Error handler middleware
+function errorHandler(err, req, res, next) {
+  console.error('Error:', err);
+
+  if (err instanceof z.ZodError) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid input',
+      details: err.errors
+    });
+  }
+
+  const statusCode = err.status || 500;
+  const message = statusCode === 500 ? 'Internal server error' : err.message;
+
+  res.status(statusCode).json({
+    success: false,
+    error: message
+  });
 }
 
 // Generate post endpoint
-app.post('/api/generatePost', async (req, res) => {
+app.post('/api/generatePost', checkCache, async (req, res, next) => {
   try {
-    const { postType, topic, audience, style, guidelines } = req.body;
-    console.log('Received request:', { postType, topic, audience, style, guidelines });
-
-    // Input validation
-    if (!postType || !topic) {
-      return res.status(400).json({
-        success: false,
-        error: 'Post type and topic are required'
-      });
-    }
-
-    // Validate OpenAI configuration
+    // Validate input
+    const validatedInput = contentSchema.parse(req.body);
+    
+    // OpenAI configuration check
     if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({
-        success: false,
-        error: 'OpenAI API key is not configured'
-      });
+      throw new Error('OpenAI API key is not configured');
     }
 
     const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY
     });
-    console.log('OpenAI client initialized');
 
-    const prompt = buildPrompt({ postType, topic, audience, style, guidelines });
-    console.log('Built prompt:', prompt);
+    const prompt = generatePrompt(validatedInput.postType, validatedInput);
+    console.log('Generated prompt:', prompt);
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -78,79 +161,49 @@ app.post('/api/generatePost', async (req, res) => {
 Core Objectives:
 - Generate high-quality, contextually relevant social media content
 - Adapt tone and style based on user-specified preferences
-- Ensure content is platform-specific and meets each platform's best practices
-
-Platform Considerations:
-- Instagram: Consider image generation and hashtag suggestions
-- LinkedIn: Maintain a professional tone
-- Twitter: Craft concise, impactful messages
-- TikTok: Create trendy, engaging content
-- Facebook: Balance informative and conversational styles
-- Discord: Adapt to community-specific communication norms
-
-Tone Flexibility:
-Adjust content tone to match user preference:
-- Professional: Formal, authoritative, industry-focused
-- Casual: Conversational, relatable, approachable
-- Inspirational: Motivational, uplifting, encouraging
-- Humorous: Witty, light-hearted, entertaining
-
-Technical and Ethical Guidelines:
-- Prioritize clarity and engagement
-- Avoid sensitive or controversial topics
-- Respect platform-specific content guidelines
-- Maintain user privacy and confidentiality
-
-Performance Expectations:
-- Generate content quickly and efficiently
-- Offer suggestions for content optimization`
+- Ensure content is platform-specific and meets each platform's best practices`
         },
         {
           role: 'user',
           content: prompt
         }
-      ]
+      ],
+      temperature: parseFloat(process.env.OPENAI_TEMPERATURE || '0.7'),
+      max_tokens: parseInt(process.env.OPENAI_MAX_TOKENS || '500')
     });
-    console.log('OpenAI response received');
 
-    res.json({
+    const result = {
       success: true,
-      content: completion.choices[0].message.content.trim()
-    });
+      content: completion.choices[0].message.content,
+      usage: completion.usage
+    };
+
+    // Cache the result
+    if (redis) {
+      const cacheKey = `content:${JSON.stringify(req.body)}`;
+      await redis.setex(cacheKey, 3600, JSON.stringify(result)); // Cache for 1 hour
+    }
+
+    res.json(result);
   } catch (error) {
-    console.error('Error details:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name
-    });
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      details: error.message
-    });
+    next(error);
   }
 });
 
 // Generate image endpoint
-app.post('/api/generateImage', async (req, res) => {
+app.post('/api/generateImage', checkCache, async (req, res, next) => {
   try {
     const { prompt } = req.body;
     console.log('Received image generation request:', { prompt });
 
     // Input validation
     if (!prompt) {
-      return res.status(400).json({
-        success: false,
-        error: 'Prompt is required'
-      });
+      throw new Error('Prompt is required');
     }
 
     // Validate OpenAI configuration
     if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({
-        success: false,
-        error: 'OpenAI API key is not configured'
-      });
+      throw new Error('OpenAI API key is not configured');
     }
 
     const openai = new OpenAI({
@@ -170,45 +223,40 @@ app.post('/api/generateImage', async (req, res) => {
 
     if (!response.data || !response.data[0] || !response.data[0].url) {
       console.error('Invalid response from OpenAI:', response);
-      return res.status(500).json({
-        success: false,
-        error: 'Invalid response from image generation service'
-      });
+      throw new Error('Invalid response from image generation service');
     }
 
-    res.json({
+    const result = {
       success: true,
       imageUrl: response.data[0].url
-    });
+    };
+
+    // Cache the result
+    if (redis) {
+      const cacheKey = `image:${prompt}`;
+      await redis.setex(cacheKey, 3600, JSON.stringify(result)); // Cache for 1 hour
+    }
+
+    res.json(result);
   } catch (error) {
-    console.error('Image generation error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Failed to generate image'
-    });
+    next(error);
   }
 });
 
 // Generate poll endpoint
-app.post('/api/generate-poll', async (req, res) => {
+app.post('/api/generate-poll', checkCache, async (req, res, next) => {
   try {
     const { topic, audience, style, guidelines } = req.body;
     console.log('Received poll generation request:', { topic, audience, style, guidelines });
 
     // Input validation
     if (!topic) {
-      return res.status(400).json({
-        success: false,
-        error: 'Poll topic is required'
-      });
+      throw new Error('Poll topic is required');
     }
 
     // Validate OpenAI configuration
     if (!process.env.OPENAI_API_KEY) {
-      return res.status(500).json({
-        success: false,
-        error: 'OpenAI API key is not configured'
-      });
+      throw new Error('OpenAI API key is not configured');
     }
 
     const openai = new OpenAI({
@@ -227,7 +275,8 @@ app.post('/api/generate-poll', async (req, res) => {
       2. Option A
       3. Option B
       4. Option C
-      5. Explanation of why this poll is engaging
+      5. Option D
+      6. Explanation of why this poll is engaging
     `;
 
     const completion = await openai.chat.completions.create({
@@ -247,20 +296,27 @@ app.post('/api/generate-poll', async (req, res) => {
     const content = completion.choices[0].message.content.trim();
     const lines = content.split('\n').filter(line => line.trim());
     
-    res.json({
+    const result = {
       success: true,
       content: content,
       question: lines[0].replace(/^[0-9]+\.\s*/, '').trim(),
       options: lines.slice(1, 4).map(line => line.replace(/^[0-9]+\.\s*/, '').trim())
-    });
+    };
+
+    // Cache the result
+    if (redis) {
+      const cacheKey = `poll:${JSON.stringify(req.body)}`;
+      await redis.setex(cacheKey, 3600, JSON.stringify(result)); // Cache for 1 hour
+    }
+
+    res.json(result);
   } catch (error) {
-    console.error('Poll generation error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Failed to generate poll'
-    });
+    next(error);
   }
 });
+
+// Apply error handler
+app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);

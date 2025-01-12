@@ -66,47 +66,51 @@ const particlesProps: ExtendedParticlesProps = {
 const LandingPage: React.FC = () => {
   const features = [
     {
-      title: "Image Generation",
-      description: "Create stunning visuals for your posts instantly",
+      title: "AI-Powered Image Generation",
+      description: "Create stunning visuals with GPT-4o-mini powered AI",
       icon: ImageIcon,
       capabilities: [
-        "AI-powered image creation",
+        "Advanced AI image creation",
         "Platform-specific image sizing",
-        "Style and mood customization"
+        "Style and mood customization",
+        "OpenAI integration"
       ]
     },
     {
       title: "Advanced Content Creation",
-      description: "Craft perfect posts for every platform",
+      description: "Craft perfect posts powered by GPT-4o-mini",
       icon: ContentIcon,
       capabilities: [
-        "Short-form content",
-        "Long-form articles",
-        "Twitter/X threads",
-        "Custom content templates"
+        "AI-generated short-form content",
+        "Contextual long-form articles",
+        "Dynamic Twitter/X threads",
+        "Personalized content templates",
+        "Real-time language optimization"
       ]
     },
     {
       title: "Smart Social Sharing",
-      description: "Optimize and distribute content effortlessly",
+      description: "Optimize and distribute content with AI precision",
       icon: SharingIcon,
       capabilities: [
-        "Direct platform sharing",
-        "Character count tracking",
-        "Platform-specific optimization",
-        "Inline content editing"
+        "Direct multi-platform sharing",
+        "Intelligent character count tracking",
+        "Platform-specific content optimization",
+        "Inline AI-assisted editing",
+        "Supabase-powered analytics"
       ]
     },
     {
-      title: "Multi-Platform Targeting",
-      description: "Tailored content for each social network",
+      title: "Multi-Platform AI Targeting",
+      description: "Tailored content strategy for each social network",
       icon: TargetIcon,
       capabilities: [
-        "Facebook strategy",
-        "Instagram optimization",
-        "LinkedIn professional tone",
-        "X/Twitter engagement",
-        "Discord community content"
+        "Facebook strategic content",
+        "Instagram visual optimization",
+        "LinkedIn professional tone generation",
+        "X/Twitter engagement maximization",
+        "Discord community content crafting",
+        "AI-driven audience insights"
       ]
     }
   ];
@@ -115,14 +119,20 @@ const LandingPage: React.FC = () => {
     {
       name: "Sarah Johnson",
       role: "Marketing Director",
-      quote: "Transformed our social media strategy overnight!",
+      quote: "Our social media strategy went from good to extraordinary with AI-powered content generation!",
       avatar: "https://randomuser.me/api/portraits/women/44.jpg"
     },
     {
       name: "Mike Rodriguez",
       role: "Content Creator",
-      quote: "The AI understands my brand better than I do!",
+      quote: "The AI understands my brand's voice better than any human assistant ever could!",
       avatar: "https://randomuser.me/api/portraits/men/32.jpg"
+    },
+    {
+      name: "Elena Chen",
+      role: "Social Media Strategist",
+      quote: "Multi-platform optimization has never been this seamless and intelligent.",
+      avatar: "https://randomuser.me/api/portraits/women/65.jpg"
     }
   ];
 

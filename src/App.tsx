@@ -17,6 +17,8 @@ import PreferenceSelection from './components/PreferenceSelection';
 import { UserPreferences } from './types/preferences';
 import Polls from './components/Polls';
 import { FileText, MessageSquare, PieChart } from 'lucide-react';
+import Newsletter from '@/components/Newsletter';
+import { NewsletterPromptParams, generateNewsletterPrompt } from './utils/prompts/newsletterPrompt';
 
 interface Template {
   id: string;
@@ -32,7 +34,7 @@ interface Template {
 
 function App() {
   const [isDark, setIsDark] = useState(true)
-  const [activeTab, setActiveTab] = useState('short-form')
+  const [activeTab, setActiveTab] = useState('newsletter')
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [generatedContent, setGeneratedContent] = useState('')
@@ -80,7 +82,8 @@ function App() {
       motivational: true,
       educational: true,
       promotional: true,
-      personal: true
+      personal: true,
+      newsletter: true
     }
   });
 
@@ -212,7 +215,8 @@ function App() {
   const postTypeTabs = [
     { id: 'short-form', label: 'Short Form', icon: <FileText size={16} /> },
     { id: 'long-form', label: 'Long Form', icon: <FileText size={16} /> },
-    { id: 'thread', label: 'Threads', icon: <MessageSquare size={16} /> }
+    { id: 'thread', label: 'Threads', icon: <MessageSquare size={16} /> },
+    { id: 'newsletter', label: 'Newsletter', icon: <PieChart size={16} /> }
   ];
 
   const seoMetadata = {
@@ -389,16 +393,114 @@ function App() {
                     </div>
                   </CardContent>
 
-                  <Tabs defaultValue={activeTab} onValueChange={setActiveTab} className="w-full mt-4">
-                    <TabsList className="grid w-full grid-cols-3">
-                      <TabsTrigger value="short-form" className="text-sm">Short Form</TabsTrigger>
-                      <TabsTrigger value="long-form" className="text-sm">Long Form</TabsTrigger>
-                      <TabsTrigger value="thread" className="text-sm">Threads</TabsTrigger>
+                  <Tabs defaultValue="short" value={activeTab} onValueChange={setActiveTab}>
+                    <TabsList className="grid w-full grid-cols-4">
+                      <TabsTrigger value="short" className="flex items-center gap-2">
+                        <FileText size={16} /> Short Form
+                      </TabsTrigger>
+                      <TabsTrigger value="long" className="flex items-center gap-2">
+                        <MessageSquare size={16} /> Long Form
+                      </TabsTrigger>
+                      <TabsTrigger value="threads" className="flex items-center gap-2">
+                        <PieChart size={16} /> Threads
+                      </TabsTrigger>
+                      <TabsTrigger value="newsletter" className="flex items-center gap-2">
+                        <FileText size={16} /> Newsletter
+                      </TabsTrigger>
                     </TabsList>
                     
-                 
+                    <TabsContent value="short">
+                      <GeneratedContent 
+                        topic={topic} 
+                        audience={audience} 
+                        style={style} 
+                        guidelines={guidelines}
+                        isLoading={isLoading}
+                        generatedContent={generatedContent}
+                      />
+                    </TabsContent>
                     
-                   
+                    <TabsContent value="long">
+                      <GeneratedContent 
+                        topic={topic} 
+                        audience={audience} 
+                        style={style} 
+                        guidelines={guidelines}
+                        isLoading={isLoading}
+                        generatedContent={generatedContent}
+                      />
+                    </TabsContent>
+                    
+                    <TabsContent value="threads">
+                      <GeneratedContent 
+                        topic={topic} 
+                        audience={audience} 
+                        style={style} 
+                        guidelines={guidelines}
+                        isLoading={isLoading}
+                        generatedContent={generatedContent}
+                      />
+                    </TabsContent>
+                    
+                    <TabsContent value="newsletter">
+                      <Newsletter 
+                        preferences={userPreferences} 
+                        onClear={() => {
+                          setGeneratedContent('');
+                          setTopic('');
+                        }}
+                        onRegenerate={() => {
+                          const regenerateNewsletter = async () => {
+                            try {
+                              setIsLoading(true);
+                              
+                              // Use existing state for newsletter generation
+                              const newsletterParams: NewsletterPromptParams = {
+                                topic: topic || 'Technology Trends',  // Fallback topic if not set
+                                style: style || 'Professional',       // Fallback style
+                                audience: audience || 'Tech Professionals', // Fallback audience
+                                guidelines: guidelines,
+                                tone: 'professional',
+                                length: 'medium'
+                              };
+
+                              // Generate prompt using existing utility
+                              const prompt = generateNewsletterPrompt(newsletterParams, userPreferences);
+
+                              // Call OpenAI API to generate newsletter content
+                              const response = await fetch('/api/generate', {
+                                method: 'POST',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                  prompt: prompt,
+                                  model: 'gpt-4o-mini',  // Use the specified model from guidelines
+                                  max_tokens: 1000,      // Adjust as needed
+                                  temperature: 0.7       // Slight creativity for regeneration
+                                })
+                              });
+
+                              if (!response.ok) {
+                                throw new Error('Failed to generate newsletter');
+                              }
+
+                              const data = await response.json();
+                              
+                              // Update generated content
+                              setGeneratedContent(data.content);
+                              setIsLoading(false);
+                            } catch (error) {
+                              console.error('Newsletter regeneration error:', error);
+                              setIsLoading(false);
+                              // Optional: Add error handling UI
+                            }
+                          };
+
+                          regenerateNewsletter();
+                        }}
+                      />
+                    </TabsContent>
                   </Tabs>
 
                   {isLoading && (
@@ -409,24 +511,6 @@ function App() {
                       className="mt-8"
                     >
                       <AILoader isLoading={isLoading} />
-                    </motion.div>
-                  )}
-
-                  {generatedContent && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -20 }}
-                      className="mt-8"
-                    >
-                      <GeneratedContent
-                        activeTab={activeTab}
-                        content={generatedContent}
-                        onClear={() => setGeneratedContent('')}
-                        onRegenerate={handleGenerate}
-                        isLoading={isLoading}
-                        preferences={userPreferences}
-                      />
                     </motion.div>
                   )}
                 </Card>
